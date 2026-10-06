@@ -1,0 +1,7 @@
+data/
+node_modules/
+.env
+*.db
+
+# OS-generated files
+.DS_Store

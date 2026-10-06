@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Reports Manager</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/vendor/lucide.min.js"></script>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <i data-lucide="clipboard-list"></i>
+        <div>
+          <h1>Report Manager</h1>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <div class="user-menu" id="userMenu">
+          <button id="userToggle" class="user-toggle" type="button" aria-expanded="false" aria-haspopup="listbox">
+            <img id="currentUserPicture" class="user-avatar" src="" alt="">
+            <span id="currentUserLabel" class="user-label">User #1</span>
+            <i data-lucide="chevron-down"></i>
+          </button>
+          <div id="userMenuList" class="user-menu-list" role="listbox" hidden></div>
+        </div>
+      </div>
+    </header>
+
+    <main class="main">
+      <section class="list-pane">
+        <div class="page-toolbar">
+          <div class="pane-title">
+            <i data-lucide="table"></i>
+            Reports
+            <span id="recordsMeta" class="pane-meta"></span>
+          </div>
+          <button id="newReportBtn" class="btn-primary" type="button">
+            <i data-lucide="plus"></i>
+            <span>NEW REPORT</span>
+          </button>
+        </div>
+
+        <div class="filters-bar">
+          <label class="search-field">
+            <i data-lucide="search"></i>
+            <input
+              id="searchInput"
+              type="search"
+              placeholder="Search reports by message, severity, or category..."
+              autocomplete="off"
+            >
+          </label>
+
+          <div class="filter-group" aria-label="Severity filters">
+            <span class="filter-label">Severity</span>
+            <div class="chip-row" id="severityFilters">
+              <button type="button" class="filter-chip" data-severity="LOW" aria-pressed="false">Low</button>
+              <button type="button" class="filter-chip" data-severity="MEDIUM" aria-pressed="false">Medium</button>
+              <button type="button" class="filter-chip" data-severity="HIGH" aria-pressed="false">High</button>
+            </div>
+          </div>
+
+          <div class="filter-group category-filter">
+            <span class="filter-label">Categories</span>
+            <div class="dropdown" id="categoryDropdown">
+              <button id="categoryToggle" class="dropdown-toggle" type="button" aria-expanded="false">
+                <span id="categoryToggleLabel">All categories</span>
+                <i data-lucide="chevron-down"></i>
+              </button>
+              <div id="categoryMenu" class="dropdown-menu" hidden>
+                <div id="categoryOptions" class="checkbox-list scroll-area"></div>
+                <div class="dropdown-actions">
+                  <button id="clearCategoriesBtn" class="btn-link" type="button">Clear</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="recordsTable" class="records-wrap scroll-area">
+          <p class="records-empty">Loading reports...</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="modalOverlay" class="modal-overlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <div class="modal-header">
+        <div>
+          <h2 id="modalTitle">New report</h2>
+        </div>
+        <button id="closeModalBtn" class="btn-icon" type="button" aria-label="Close">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+
+      <form id="reportForm" class="modal-body">
+        <label class="field">
+          <span>Description</span>
+          <textarea
+            id="inputText"
+            rows="6"
+            placeholder="Describe the incident..."
+            required
+          ></textarea>
+        </label>
+        <p id="formStatus" class="form-status" hidden></p>
+        <div class="modal-footer">
+          <button id="cancelBtn" class="btn-ghost" type="button">Cancel</button>
+          <button id="submitBtn" class="btn-primary" type="submit">
+            <i data-lucide="plus"></i>
+            <span class="btn-label">Create</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="detailOverlay" class="modal-overlay" hidden>
+    <div class="modal modal-detail" role="dialog" aria-modal="true" aria-labelledby="detailTitle">
+      <div class="modal-header">
+        <div>
+          <h2 id="detailTitle">Report detail</h2>
+          <p id="detailSubtitle" class="modal-sub"></p>
+        </div>
+        <button id="closeDetailBtn" class="btn-icon" type="button" aria-label="Close">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <div class="modal-body detail-body">
+        <div class="detail-meta" id="detailMeta"></div>
+        <label class="field">
+          <span>Raw model output</span>
+          <pre id="detailJson" class="json-panel scroll-area"></pre>
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const recordsTable = document.getElementById('recordsTable');
+    const recordsMeta = document.getElementById('recordsMeta');
+    const newReportBtn = document.getElementById('newReportBtn');
+    const modalOverlay = document.getElementById('modalOverlay');
+    const closeModalBtn = document.getElementById('closeModalBtn');
+    const cancelBtn = document.getElementById('cancelBtn');
+    const reportForm = document.getElementById('reportForm');
+    const textarea = document.getElementById('inputText');
+    const submitBtn = document.getElementById('submitBtn');
+    const btnLabel = submitBtn.querySelector('.btn-label');
+    const formStatus = document.getElementById('formStatus');
+    const searchInput = document.getElementById('searchInput');
+    const severityFilters = document.getElementById('severityFilters');
+    const categoryToggle = document.getElementById('categoryToggle');
+    const categoryToggleLabel = document.getElementById('categoryToggleLabel');
+    const categoryMenu = document.getElementById('categoryMenu');
+    const categoryOptions = document.getElementById('categoryOptions');
+    const clearCategoriesBtn = document.getElementById('clearCategoriesBtn');
+    const userMenu = document.getElementById('userMenu');
+    const userToggle = document.getElementById('userToggle');
+    const userMenuList = document.getElementById('userMenuList');
+    const currentUserPicture = document.getElementById('currentUserPicture');
+    const currentUserLabel = document.getElementById('currentUserLabel');
+    const detailOverlay = document.getElementById('detailOverlay');
+    const closeDetailBtn = document.getElementById('closeDetailBtn');
+    const detailTitle = document.getElementById('detailTitle');
+    const detailSubtitle = document.getElementById('detailSubtitle');
+    const detailMeta = document.getElementById('detailMeta');
+    const detailJson = document.getElementById('detailJson');
+
+    const CURRENT_USER_KEY = 'reportManager.currentUserId';
+    let allRecords = [];
+    let categories = [];
+    let users = [];
+    let currentUserId = Number(localStorage.getItem(CURRENT_USER_KEY)) || 1;
+    let selectedSeverities = new Set();
+    let selectedCategories = new Set();
+    let lastCreatedId = null;
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;');
+    }
+
+    function priorityClass(priority) {
+      if (priority === 'HIGH') return 'prio-high';
+      if (priority === 'LOW') return 'prio-low';
+      return 'prio-medium';
+    }
+
+    function categoryLabel(id) {
+      return categories.find((item) => item.id === id)?.label || id;
+    }
+
+    function getCurrentUser() {
+      return users.find((user) => user.id === currentUserId) || users[0] || null;
+    }
+
+    function setUserMenuOpen(open) {
+      userMenuList.hidden = !open;
+      userToggle.setAttribute('aria-expanded', String(open));
+    }
+
+    function renderCurrentUser() {
+      const user = getCurrentUser();
+      if (!user) return;
+
+      currentUserId = user.id;
+      localStorage.setItem(CURRENT_USER_KEY, String(currentUserId));
+      currentUserPicture.src = user.picture;
+      currentUserPicture.alt = `User #${user.id}`;
+      currentUserLabel.textContent = `User #${user.id}`;
+    }
+
+    function renderUserMenu() {
+      userMenuList.innerHTML = users.map((user) => `
+        <button
+          type="button"
+          class="user-option ${user.id === currentUserId ? 'active' : ''}"
+          data-user-id="${user.id}"
+          role="option"
+          aria-selected="${user.id === currentUserId}"
+        >
+          <img class="user-avatar" src="${escapeHtml(user.picture)}" alt="">
+          <span>User #${escapeHtml(user.id)}</span>
+        </button>
+      `).join('');
+      renderCurrentUser();
+      lucide.createIcons({ nodes: [userToggle] });
+    }
+
+    function updateCategoryToggleLabel() {
+      if (selectedCategories.size === 0) {
+        categoryToggleLabel.textContent = 'All categories';
+        return;
+      }
+
+      if (selectedCategories.size === 1) {
+        const only = [...selectedCategories][0];
+        categoryToggleLabel.textContent = categoryLabel(only);
+        return;
+      }
+
+      categoryToggleLabel.textContent = `${selectedCategories.size} categories`;
+    }
+
+    function renderCategoryOptions() {
+      categoryOptions.innerHTML = categories.map((category) => `
+        <label class="checkbox-option">
+          <input type="checkbox" value="${escapeHtml(category.id)}" ${selectedCategories.has(category.id) ? 'checked' : ''}>
+          <span>${escapeHtml(category.label)}</span>
+        </label>
+      `).join('');
+    }
+
+    function getFilteredRecords() {
+      const query = searchInput.value.trim().toLowerCase();
+
+      return allRecords.filter((row) => {
+        if (selectedSeverities.size > 0 && !selectedSeverities.has(row.priority)) {
+          return false;
+        }
+
+        if (selectedCategories.size > 0 && !selectedCategories.has(row.category)) {
+          return false;
+        }
+
+        if (!query) return true;
+
+        const haystack = [
+          row.originalMessage,
+          row.priority,
+          row.category,
+          categoryLabel(row.category),
+          row.status,
+          String(row.userId),
+          String(row.id),
+        ]
+          .join(' ')
+          .toLowerCase();
+
+        return haystack.includes(query);
+      });
+    }
+
+    function renderActiveRecords() {
+      const rows = getFilteredRecords();
+
+      if (rows.length === 0) {
+        recordsMeta.textContent = `0 / ${allRecords.length}`;
+        recordsTable.innerHTML = '<p class="records-empty">No reports match the current filters.</p>';
+        return;
+      }
+
+      recordsMeta.textContent = `${rows.length} / ${allRecords.length}`;
+      const body = rows.map((row) => {
+        const highlight = row.id === lastCreatedId ? ' class="row-new"' : '';
+        const picture = row.userPicture
+          ? `<img class="user-avatar table-avatar" src="${escapeHtml(row.userPicture)}" alt="">`
+          : '';
+        return `
+          <tr${highlight} data-report-id="${escapeHtml(row.id)}" tabindex="0" role="button">
+            <td>${escapeHtml(row.id)}</td>
+            <td>
+              <div class="user-cell">
+                ${picture}
+                <span>${escapeHtml(row.userId)}</span>
+              </div>
+            </td>
+            <td class="cell-summary" title="${escapeHtml(row.originalMessage)}">${escapeHtml(row.originalMessage)}</td>
+            <td>${escapeHtml(categoryLabel(row.category))}</td>
+            <td><span class="badge ${priorityClass(row.priority)}">${escapeHtml(row.priority)}</span></td>
+            <td><span class="badge status">${escapeHtml(row.status)}</span></td>
+            <td>${escapeHtml(row.createdAt)}</td>
+          </tr>
+        `;
+      }).join('');
+
+      recordsTable.innerHTML = `
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>userId</th>
+              <th>Message</th>
+              <th>Category</th>
+              <th>Severity</th>
+              <th>Status</th>
+              <th>Created</th>
+            </tr>
+          </thead>
+          <tbody>${body}</tbody>
+        </table>
+      `;
+    }
+
+    function setRecords(rows) {
+      allRecords = Array.isArray(rows) ? rows : [];
+      renderActiveRecords();
+    }
+
+    async function loadUsers() {
+      const response = await fetch('/api/users');
+      const data = await response.json();
+      users = Array.isArray(data.users) ? data.users : [];
+      if (!users.some((user) => user.id === currentUserId)) {
+        currentUserId = users[0]?.id ?? 1;
+      }
+      renderUserMenu();
+    }
+
+    async function loadCategories() {
+      const response = await fetch('/api/categories');
+      const data = await response.json();
+      categories = Array.isArray(data.categories) ? data.categories : [];
+      renderCategoryOptions();
+      updateCategoryToggleLabel();
+      lucide.createIcons();
+    }
+
+    async function loadRecords() {
+      try {
+        const response = await fetch('/api/records');
+        const data = await response.json();
+        setRecords(data.records || []);
+      } catch (error) {
+        recordsMeta.textContent = '';
+        recordsTable.innerHTML = `<p class="records-empty">${escapeHtml(error.message)}</p>`;
+      }
+    }
+
+    function openModal() {
+      formStatus.hidden = true;
+      formStatus.textContent = '';
+      formStatus.className = 'form-status';
+      modalOverlay.hidden = false;
+      textarea.focus();
+      lucide.createIcons();
+    }
+
+    function closeModal() {
+      modalOverlay.hidden = true;
+    }
+
+    function closeDetail() {
+      detailOverlay.hidden = true;
+    }
+
+    function formatModelOutput(raw) {
+      if (raw == null) return '';
+      if (typeof raw === 'object') {
+        return JSON.stringify(raw, null, 2);
+      }
+
+      const text = String(raw);
+      try {
+        return JSON.stringify(JSON.parse(text), null, 2);
+      } catch {
+        return text;
+      }
+    }
+
+    function openDetail(report) {
+      detailTitle.textContent = `Report #${report.id}`;
+      detailSubtitle.textContent = report.originalMessage || '';
+      detailMeta.innerHTML = `
+        <span class="badge ${priorityClass(report.priority)}">${escapeHtml(report.priority)}</span>
+        <span class="badge status">${escapeHtml(categoryLabel(report.category))}</span>
+        <span class="badge status">${escapeHtml(report.status)}</span>
+        <span class="detail-user">User #${escapeHtml(report.userId)}</span>
+      `;
+      detailJson.textContent = formatModelOutput(report.modelOutput);
+      detailOverlay.hidden = false;
+      lucide.createIcons({ nodes: [closeDetailBtn] });
+    }
+
+    function setCategoryMenuOpen(open) {
+      categoryMenu.hidden = !open;
+      categoryToggle.setAttribute('aria-expanded', String(open));
+    }
+
+    severityFilters.addEventListener('click', (event) => {
+      const chip = event.target.closest('.filter-chip');
+      if (!chip) return;
+
+      const value = chip.dataset.severity;
+      const active = selectedSeverities.has(value);
+      if (active) {
+        selectedSeverities.delete(value);
+      } else {
+        selectedSeverities.add(value);
+      }
+      chip.classList.toggle('active', !active);
+      chip.setAttribute('aria-pressed', String(!active));
+      renderActiveRecords();
+    });
+
+    categoryToggle.addEventListener('click', () => {
+      setCategoryMenuOpen(categoryMenu.hidden);
+    });
+
+    categoryOptions.addEventListener('change', (event) => {
+      const input = event.target;
+      if (!(input instanceof HTMLInputElement)) return;
+
+      if (input.checked) {
+        selectedCategories.add(input.value);
+      } else {
+        selectedCategories.delete(input.value);
+      }
+
+      updateCategoryToggleLabel();
+      renderActiveRecords();
+    });
+
+    clearCategoriesBtn.addEventListener('click', () => {
+      selectedCategories.clear();
+      renderCategoryOptions();
+      updateCategoryToggleLabel();
+      renderActiveRecords();
+    });
+
+    searchInput.addEventListener('input', () => {
+      renderActiveRecords();
+    });
+
+    document.addEventListener('click', (event) => {
+      const categoryDropdown = document.getElementById('categoryDropdown');
+      if (!categoryDropdown.contains(event.target)) {
+        setCategoryMenuOpen(false);
+      }
+      if (!userMenu.contains(event.target)) {
+        setUserMenuOpen(false);
+      }
+    });
+
+    userToggle.addEventListener('click', () => {
+      setUserMenuOpen(userMenuList.hidden);
+    });
+
+    userMenuList.addEventListener('click', (event) => {
+      const option = event.target.closest('[data-user-id]');
+      if (!option) return;
+      currentUserId = Number(option.dataset.userId);
+      renderUserMenu();
+      setUserMenuOpen(false);
+    });
+
+    newReportBtn.addEventListener('click', openModal);
+    closeModalBtn.addEventListener('click', closeModal);
+    cancelBtn.addEventListener('click', closeModal);
+    closeDetailBtn.addEventListener('click', closeDetail);
+
+    recordsTable.addEventListener('click', (event) => {
+      const row = event.target.closest('tr[data-report-id]');
+      if (!row || !recordsTable.contains(row)) return;
+      const report = allRecords.find((item) => String(item.id) === String(row.dataset.reportId));
+      if (report) openDetail(report);
+    });
+
+    recordsTable.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      const row = event.target.closest('tr[data-report-id]');
+      if (!row || !recordsTable.contains(row)) return;
+      event.preventDefault();
+      const report = allRecords.find((item) => String(item.id) === String(row.dataset.reportId));
+      if (report) openDetail(report);
+    });
+
+    modalOverlay.addEventListener('click', (event) => {
+      if (event.target === modalOverlay) closeModal();
+    });
+
+    detailOverlay.addEventListener('click', (event) => {
+      if (event.target === detailOverlay) closeDetail();
+    });
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape') return;
+      if (!detailOverlay.hidden) {
+        closeDetail();
+        return;
+      }
+      if (!modalOverlay.hidden) closeModal();
+    });
+
+    reportForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+
+      const userId = Number(currentUserId);
+      const text = textarea.value;
+
+      if (!Number.isInteger(userId) || userId <= 0) {
+        formStatus.hidden = false;
+        formStatus.className = 'form-status err';
+        formStatus.textContent = 'Select a logged-in user first.';
+        return;
+      }
+
+      if (!text.trim()) {
+        formStatus.hidden = false;
+        formStatus.className = 'form-status err';
+        formStatus.textContent = 'Description is empty.';
+        return;
+      }
+
+      submitBtn.disabled = true;
+      btnLabel.textContent = 'Creating...';
+      formStatus.hidden = false;
+      formStatus.className = 'form-status pending';
+      formStatus.textContent = 'Creating report...';
+
+      try {
+        const response = await fetch('/api/reportManager', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, text })
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+          formStatus.className = 'form-status err';
+          formStatus.textContent = data.error || `Error ${response.status}`;
+          return;
+        }
+
+        lastCreatedId = data.record?.id ?? null;
+        setRecords(data.records || []);
+        closeModal();
+      } catch (error) {
+        formStatus.className = 'form-status err';
+        formStatus.textContent = error.message;
+      } finally {
+        submitBtn.disabled = false;
+        btnLabel.textContent = 'Create';
+      }
+    });
+
+    lucide.createIcons();
+    Promise.all([loadUsers(), loadCategories()])
+      .then(loadRecords)
+      .catch((error) => {
+        recordsTable.innerHTML = `<p class="records-empty">${escapeHtml(error.message)}</p>`;
+      });
+  </script>
+</body>
+</html>
